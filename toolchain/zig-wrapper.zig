@@ -235,8 +235,45 @@ fn parseArgs(
         }),
     }
 
-    while (argv_it.next()) |arg|
+    const regex = std.regex;
+
+    const armv_pattern = try regex.compile(arena, "^-march=armv([0-9]+(\\.[0-9]+)?)-a(\\+.*)?$");
+
+    while (argv_it.next()) |arg| {
+        if (mem.startsWith(u8, arg, "-march=")) {
+            // Match `-march=armv*` patterns using regex
+            var match = try armv_pattern.match(arg);
+            if (match) {
+                const version = match.group(1); // Extract version (e.g., "8", "8.1", "9")
+                const features = match.group(3) orelse ""; // Extract features (e.g., "+crypto")
+                const generic_arch = "generic+armv" ++ version ++ features;
+
+                var args_march = if (target_info.target)
+target| mem.startsWith(u8, target, "aarch64-macos") {
+                        &[_][]const u8{ arg.replace(match.group(0), "apple_m1") }
+                    } else if (target_info.target)
+target| mem.startsWith(u8, target, "aarch64-linux") {
+                            &[_][]const u8{
+                                arg.replace(match.group(0), generic_arch)
+                                    .replace("simd", "neon"),
+                            }
+                        } else {
+                            &[_][]const u8{ arg }
+                        };
+
+                if (mem.indexOf(u8, features, "+crypto") != null) {
+                    // Workaround for building sha1-asm on aarch64
+                    args_march = &[_][]const u8{
+                        "-Xassembler",
+                        arg.replace(match.group(0), generic_arch),
+                    };
+                }
+                try args.appendSlice(arena, args_march);
+                continue;
+            }
+        }
         try args.append(arena, arg);
+    }
 
     return ParseResults{ .exec = .{ .args = args, .env = env } };
 }
@@ -322,6 +359,28 @@ fn compareExec(
         want_env_zig_lib_dir,
         res.exec.env.get("ZIG_LIB_DIR").?,
     );
+}
+
+fn transformArchToCpu(arena: mem.Allocator, march: []const u8) !?[]const u8 {
+    // Transform the armv<V>-a value to mcpu-compatible
+    // by defining the CPU as Arm generic with arm[V]a feature
+    if (mem.startsWith(u8, march, "armv")) {
+        // Find the start of features (the first + or the second -) after the base architecture
+        const feature_start = mem.indexOf(u8, march, "+") orelse blk: {
+            const fist_dash = mem.indexOf(u8, march, "-")
+                orelse fatal("No '-' found in march string: {s}", .{march});
+
+            break :blk mem.indexOfPos(u8, march, fist_dash + 1, "-");
+        };
+        const base_arch = if (feature_start) |idx| march[0..idx] else march;
+        const features = if (feature_start) |idx| march[idx..] else "";
+
+        return try std.fmt.allocPrint(arena, "generic+{s}+{s}", .{
+            mem.replaceOwned(u8, arena, base_arch, "-", ""),
+            features
+        });
+    }
+    return null;
 }
 
 test "zig-wrapper:parseArgs" {
