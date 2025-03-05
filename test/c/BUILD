@@ -12,6 +12,11 @@ _LINUX_AMD64 = [
     "@platforms//cpu:x86_64",
 ]
 
+_LINUX_AARCH64 = [
+    "@platforms//os:linux",
+    "@platforms//cpu:aarch64",
+]
+
 _DARWIN_AMD64 = [
     "@platforms//os:macos",
     "@platforms//cpu:x86_64",
@@ -68,6 +73,22 @@ _WINDOWS_AMD64 = [
             "linux_amd64",
             "//platform:linux_amd64",
             _LINUX_AMD64,
+            "^linux glibc_2.28",
+            [],
+            "NATIVE",
+        ),
+        (
+            "linux_aarch64_gnu.2.28",
+            "//libc_aware/platform:linux_aarch64_gnu.2.28",
+            _LINUX_AARCH64,
+            "^linux glibc_2.28",
+            [],
+            "NATIVE",
+        ),
+        (
+            "linux_aarch64",
+            "//platform:linux_aarch64",
+            _LINUX_AARCH64,
             "^linux glibc_2.28",
             [],
             "NATIVE",

@@ -235,10 +235,68 @@ fn parseArgs(
         }),
     }
 
-    while (argv_it.next()) |arg|
-        try args.append(arena, arg);
+    while (argv_it.next()) |arg| {
+        const transformedArg = transformArg(arena, arg) catch |err|
+            return parseFatal(arena, "error transforming arg: {s}", .{@errorName(err)});
+        try args.append(arena, transformedArg);
+    }
 
     return ParseResults{ .exec = .{ .args = args, .env = env } };
+}
+
+fn transformArg(arena: mem.Allocator, arg: []const u8) error{ MalformedArg, OutOfMemory }![]const u8 {
+    // zig cc does not understand LLVM -march=armv8.1-a[+features], converting it to -mcpu=generic+v8_1a[+features]
+    if (mem.startsWith(u8, arg, "-march=armv")) {
+        const march = arg["-march=".len..];
+        const feature_start_pos = (mem.indexOf(u8, march, "-a") orelse return error.MalformedArg) + 2;
+
+        const base_march = march[0..feature_start_pos];
+        const arm_feature = try mem.replaceOwned(u8, arena, base_march["arm".len..], "-", "");
+        mem.replaceScalar(u8, arm_feature, '.', '_');
+
+        const features = march[feature_start_pos..];
+
+        return try std.fmt.allocPrint(arena, "-mcpu=generic+{s}{s}", .{ arm_feature, features });
+    }
+
+    return arg;
+}
+
+test "zig-wrapper:transformArg" {
+    // not using testing.allocator, because parseArgs is designed to be used
+    // with an arena.
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    try testing.expectEqualStrings(
+        "-mcpu=generic+v8_2a+fp16",
+        try transformArg(allocator, "-march=armv8.2-a+fp16"),
+    );
+
+    try testing.expectEqualStrings(
+        "-mcpu=generic+v8a",
+        try transformArg(allocator, "-march=armv8-a"),
+    );
+
+    try testing.expectEqualStrings(
+        "-mcpu=generic+v9_1a-fp16",
+        try transformArg(allocator, "-march=armv9.1-a-fp16"),
+    );
+
+    try testing.expectEqualStrings(
+        "-mcpu=generic+v9a+neon-fp16",
+        try transformArg(allocator, "-march=armv9-a+neon-fp16"),
+    );
+
+    try testing.expectEqualStrings(
+        "-mcpu=generic+v8_3a-simd+fp16",
+        try transformArg(allocator, "-march=armv8.3-a-simd+fp16"),
+    );
+
+    try testing.expectEqualStrings(
+        "-march=native",
+        try transformArg(allocator, "-march=native"),
+    );
 }
 
 fn parseFatal(
@@ -416,6 +474,70 @@ test "zig-wrapper:parseArgs" {
                     .env_zig_lib_dir = "external" ++ sep ++ "zig_sdk" ++
                         sep ++ "lib",
                 },
+            },
+        },
+        .{
+            .args = &[_][:0]const u8{
+                "tools" ++ sep ++ "x86_64-linux-musl" ++ sep ++ "c++" ++ EXE,
+                "main.c",
+                "-o",
+                "/dev/null",
+                "-march=armv8.2-a+fp16",
+            },
+            .want_result = .{
+                .exec = .{
+                    .args = &[_][:0]const u8{
+                        "tools" ++ sep ++ "x86_64-linux-musl" ++ sep ++
+                            ".." ++ sep ++ ".." ++ sep ++ "zig" ++ EXE,
+                        "c++",
+                        "-target",
+                        "x86_64-linux-musl",
+                        "main.c",
+                        "-o",
+                        "/dev/null",
+                        "-mcpu=generic+v8_2a+fp16",
+                    },
+                    .env_zig_lib_dir = "tools" ++ sep ++ "x86_64-linux-musl" ++
+                        sep ++ ".." ++ sep ++ ".." ++ sep ++ "lib",
+                },
+            },
+        },
+        .{
+            .args = &[_][:0]const u8{
+                "tools" ++ sep ++ "x86_64-linux-musl" ++ sep ++ "c++" ++ EXE,
+                "main.c",
+                "-o",
+                "/dev/null",
+                "-march=native",
+            },
+            .want_result = .{
+                .exec = .{
+                    .args = &[_][:0]const u8{
+                        "tools" ++ sep ++ "x86_64-linux-musl" ++ sep ++
+                            ".." ++ sep ++ ".." ++ sep ++ "zig" ++ EXE,
+                        "c++",
+                        "-target",
+                        "x86_64-linux-musl",
+                        "main.c",
+                        "-o",
+                        "/dev/null",
+                        "-march=native",
+                    },
+                    .env_zig_lib_dir = "tools" ++ sep ++ "x86_64-linux-musl" ++
+                        sep ++ ".." ++ sep ++ ".." ++ sep ++ "lib",
+                },
+            },
+        },
+        .{
+            .args = &[_][:0]const u8{
+                "tools" ++ sep ++ "x86_64-linux-musl" ++ sep ++ "c++" ++ EXE,
+                "main.c",
+                "-o",
+                "/dev/null",
+                "-march=armv8.2+invalid",
+            },
+            .want_result = .{
+                .err = "error transforming arg: MalformedArg\n",
             },
         },
     };
