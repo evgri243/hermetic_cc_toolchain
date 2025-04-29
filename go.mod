@@ -4,14 +4,15 @@ go 1.19
 
 require (
 	github.com/bazelbuild/buildtools v0.0.0-20230510134650-37bd1811516d
+	github.com/bazelbuild/rules_go v0.53.0
 	github.com/stretchr/testify v1.8.2
-        github.com/tetratelabs/wazero v1.6.0
+	github.com/tetratelabs/wazero v1.6.0
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
+	google.golang.org/protobuf v1.36.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
